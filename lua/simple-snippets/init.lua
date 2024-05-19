@@ -6,6 +6,19 @@ local M = {}
 ---@type table<string, table<string, simple-snippets.Snippet>>
 M.snippets = {}
 
+---@return string?
+local function treesitter_language_under_cursor()
+    local line, col = unpack(vim.api.nvim_win_get_cursor(0))
+    local range = { line, col, line - 1, col } ---@type Range4
+    return vim.treesitter.get_parser():language_for_range(range):lang()
+end
+
+---@return string
+local function current_filetype()
+    local highlighter = vim.treesitter.highlighter.active[vim.api.nvim_get_current_buf()]
+    return highlighter and treesitter_language_under_cursor() or vim.bo.filetype
+end
+
 ---@type fun(str: string, from: integer, to: integer): string
 local function string_erase(str, from, to)
     return str:sub(1, from) .. str:sub(to + 1, -1)
@@ -23,7 +36,7 @@ end
 
 ---@type fun(name: string): simple-snippets.Snippet?
 local function find_snippet(name)
-    return vim.tbl_get(M.snippets, vim.bo.filetype, name) or vim.tbl_get(M.snippets, "all", name)
+    return vim.tbl_get(M.snippets, current_filetype(), name) or vim.tbl_get(M.snippets, "all", name)
 end
 
 ---@type fun(snippet: simple-snippets.Snippet): string?
@@ -72,7 +85,7 @@ end
 
 ---Display available snippets in a popup-menu, and expand the selection.
 M.complete = function ()
-    local snippets = vim.tbl_extend("force", M.snippets.all or {}, M.snippets[vim.bo.filetype] or {})
+    local snippets = vim.tbl_extend("force", M.snippets.all or {}, M.snippets[current_filetype()] or {})
     if vim.tbl_isempty(snippets) then
         vim.notify("nvim-simple-snippets: No snippets available", vim.log.levels.INFO)
     else
