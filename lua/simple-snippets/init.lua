@@ -54,12 +54,6 @@ local function snippet_body(snippet)
     end
 end
 
----@type fun(line: string): string?
-local function simple_word_suffix(line)
-    local word = line:reverse():match("^(%a+)") ---@type string?
-    return word and word:reverse()
-end
-
 ---@type fun(name: string): string?
 local function find_snippet(name)
     local snippets = snippets_for_current_filetype()
@@ -67,28 +61,17 @@ local function find_snippet(name)
     return snippet and snippet_body(snippet)
 end
 
----@param snippets table<string, simple-snippets.Snippet>
-local function complete_snippets(snippets)
-    vim.fn.complete(vim.fn.col('.'), vim.tbl_keys(snippets))
-    vim.api.nvim_create_autocmd("CompleteDone", {
-        callback = function ()
-            local word = vim.v.completed_item.word ---@type string?
-            local body = word and #word ~= 0 and snippet_body(snippets[word])
-            if not (word and body) then return end
-            erase_word_before_cursor(word)
-            vim.snippet.expand(body)
-        end,
-        buffer = vim.api.nvim_get_current_buf(),
-        once   = true,
-    })
+---@return string? word
+local function word_before_cursor()
+    return vim.api.nvim_get_current_line():sub(1, vim.fn.col('.') - 1):match("%a+$")
 end
 
 ---If there is a snippet name before the cursor, expand it.
 ---@return boolean success Whether a snippet was expanded.
 M.expand = function ()
-    local name = simple_word_suffix(vim.api.nvim_get_current_line():sub(1, vim.fn.col('.') - 1))
+    local name = word_before_cursor()
     local body = name and find_snippet(name)
-    if not name or not body then return false end
+    if not (name and body) then return false end
     erase_word_before_cursor(name)
     vim.snippet.expand(body)
     return true
@@ -99,13 +82,71 @@ M.expand_or_jump = function ()
     if not M.expand() then vim.snippet.jump(1) end
 end
 
+-- https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_completion
+
+local lsp_snippet_insertTextFormat = 2
+
+---@type fun(name: string, snippet: simple-snippets.Snippet): table
+local function make_completion_item(name, snippet)
+    ---@type lsp.CompletionItem
+    local item = {
+        label            = name,
+        insertTextFormat = lsp_snippet_insertTextFormat,
+        insertText       = snippet_body(snippet) or "(invalid snippet)",
+    }
+    return {
+        word      = name,
+        info      = item.insertText,
+        user_data = { ["nvim-simple-snippets"] = { completion_item = item } },
+    }
+end
+
+---@type fun(item: lsp.CompletionItem, buffer: integer)
+local function apply_completion(item, buffer)
+    if item.additionalTextEdits then
+        vim.lsp.util.apply_text_edits(item.additionalTextEdits, buffer, vim.opt.encoding:get())
+    end
+    local body = vim.tbl_get(item, "textEdit", "newText") or item.insertText or vim.v.completed_item.word
+    vim.snippet.expand(assert(body))
+end
+
+local function completion_item_userdata()
+    return vim.tbl_get(vim.v.completed_item, "user_data", "nvim", "lsp", "completion_item")
+        or vim.tbl_get(vim.v.completed_item, "user_data", "nvim-simple-snippets", "completion_item")
+end
+
+---@return integer
+local function completion_autogroup()
+    return vim.api.nvim_create_augroup("nvim-simple-snippets-expand-completion", {})
+end
+
+M.enable_expand_completed_snippets = function ()
+    vim.api.nvim_create_autocmd("CompleteDone", {
+        callback = function (event)
+            ---@type lsp.CompletionItem?
+            local item = completion_item_userdata()
+            if item and item.insertTextFormat == lsp_snippet_insertTextFormat then
+                erase_word_before_cursor(vim.v.completed_item.word)
+                apply_completion(item, event.buf)
+                vim.v.completed_item = vim.empty_dict() -- Sometimes not cleared automatically for some reason.
+            end
+        end,
+        group = completion_autogroup(),
+        desc  = "Expand completed snippets",
+    })
+end
+
+M.disable_expand_completed_snippets = function ()
+    completion_autogroup()
+end
+
 ---Display available snippets in a popup-menu, and expand the selection.
 M.complete = function ()
     local snippets = snippets_for_current_filetype()
     if vim.tbl_isempty(snippets) then
         notify("No snippets available")
     else
-        complete_snippets(snippets)
+        vim.fn.complete(vim.fn.col('.'), vim.iter(pairs(snippets)):map(make_completion_item):totable())
     end
 end
 
