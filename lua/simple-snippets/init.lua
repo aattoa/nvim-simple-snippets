@@ -18,15 +18,24 @@ local function treesitter_language_under_cursor()
     return vim.treesitter.get_parser():language_for_range(range):lang()
 end
 
----@return string
-local function current_filetype()
-    local highlighter = vim.treesitter.highlighter.active[vim.api.nvim_get_current_buf()]
-    return highlighter and treesitter_language_under_cursor() or vim.bo.filetype
+---@return string[]
+local function current_filetypes()
+    if not vim.treesitter.highlighter.active[vim.api.nvim_get_current_buf()] then
+        return { vim.bo.filetype }
+    end
+    local language = treesitter_language_under_cursor()
+    return language and vim.treesitter.language.get_filetypes(language) or { vim.bo.filetype }
+end
+
+---@type fun(filetype: string): table<string, simple-snippets.Snippet>
+local function snippets_for_filetype(filetype)
+    return M.snippets[filetype] or {}
 end
 
 ---@type fun(): table<string, simple-snippets.Snippet>
-local function snippets_for_current_filetype()
-    return vim.tbl_extend("keep", M.snippets[current_filetype()] or {}, M.snippets.all or {})
+local function snippets_for_cursor()
+    local snippet_tables = vim.iter(current_filetypes()):map(snippets_for_filetype):totable()
+    return vim.tbl_extend("force", M.snippets.all or {}, unpack(snippet_tables))
 end
 
 ---@type fun(from: integer, to: integer)
@@ -56,7 +65,7 @@ end
 
 ---@type fun(name: string): string?
 local function find_snippet(name)
-    local snippets = snippets_for_current_filetype()
+    local snippets = snippets_for_cursor()
     local snippet = snippets and snippets[name]
     return snippet and snippet_body(snippet)
 end
@@ -142,7 +151,7 @@ end
 
 ---Display available snippets in a popup-menu, and expand the selection.
 M.complete = function ()
-    local snippets = snippets_for_current_filetype()
+    local snippets = snippets_for_cursor()
     if vim.tbl_isempty(snippets) then
         notify("No snippets available")
     else
