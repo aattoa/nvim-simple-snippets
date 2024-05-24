@@ -97,15 +97,23 @@ local lsp_snippet_insertTextFormat = 2
 
 ---@type fun(name: string, snippet: simple-snippets.Snippet): table
 local function make_completion_item(name, snippet)
+    local body = snippet_body(snippet)
+    if not body then
+        return {
+            word = name,
+            menu = "(invalid)",
+            info = "This snippet has an invalid body!",
+        }
+    end
     ---@type lsp.CompletionItem
     local item = {
         label            = name,
+        insertText       = body,
         insertTextFormat = lsp_snippet_insertTextFormat,
-        insertText       = snippet_body(snippet) or "(invalid snippet)",
     }
     return {
         word      = name,
-        info      = item.insertText,
+        info      = body,
         user_data = { ["nvim-simple-snippets"] = { completion_item = item } },
     }
 end
