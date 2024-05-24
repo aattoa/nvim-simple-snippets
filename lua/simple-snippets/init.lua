@@ -11,20 +11,34 @@ local function notify(message, level)
     vim.notify("nvim-simple-snippets: " .. message, level or vim.log.levels.INFO)
 end
 
----@return string?
-local function treesitter_language_under_cursor()
+---@return string[]?
+local function treesitter_filetypes_under_cursor()
     local line, col = unpack(vim.api.nvim_win_get_cursor(0))
     local range = { line, col, line - 1, col } ---@type Range4
-    return vim.treesitter.get_parser():language_for_range(range):lang()
+    local language = vim.treesitter.get_parser():language_for_range(range):lang()
+    return language and vim.treesitter.language.get_filetypes(language)
+end
+
+---@return boolean
+local function use_treesitter()
+    return vim.treesitter.highlighter.active[vim.api.nvim_get_current_buf()] ~= nil
+end
+
+---@return boolean
+local function use_special_filetype_all()
+    return true -- Adjust with config later.
 end
 
 ---@return string[]
 local function current_filetypes()
-    if not vim.treesitter.highlighter.active[vim.api.nvim_get_current_buf()] then
-        return { vim.bo.filetype }
+    local filetypes = use_treesitter() and treesitter_filetypes_under_cursor() or {}
+    if not vim.list_contains(filetypes, vim.bo.filetype) then
+        table.insert(filetypes, vim.bo.filetype)
     end
-    local language = treesitter_language_under_cursor()
-    return language and vim.treesitter.language.get_filetypes(language) or { vim.bo.filetype }
+    if use_special_filetype_all() then
+        table.insert(filetypes, "all")
+    end
+    return filetypes
 end
 
 ---@type fun(filetype: string): table<string, simple-snippets.Snippet>
@@ -35,7 +49,7 @@ end
 ---@type fun(): table<string, simple-snippets.Snippet>
 local function snippets_for_cursor()
     local snippet_tables = vim.iter(current_filetypes()):map(snippets_for_filetype):totable()
-    return vim.tbl_extend("force", M.snippets.all or {}, unpack(snippet_tables))
+    return vim.tbl_extend("keep", unpack(snippet_tables))
 end
 
 ---@type fun(from: integer, to: integer)
