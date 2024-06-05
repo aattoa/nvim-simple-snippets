@@ -24,20 +24,13 @@ local function use_treesitter()
     return vim.treesitter.highlighter.active[vim.api.nvim_get_current_buf()] ~= nil
 end
 
----@return boolean
-local function use_special_filetype_all()
-    return true -- Adjust with config later.
-end
-
 ---@return string[]
 local function current_filetypes()
     local filetypes = use_treesitter() and treesitter_filetypes_under_cursor() or {}
     if not vim.list_contains(filetypes, vim.bo.filetype) then
         table.insert(filetypes, vim.bo.filetype)
     end
-    if use_special_filetype_all() then
-        table.insert(filetypes, "all")
-    end
+    table.insert(filetypes, "all")
     return filetypes
 end
 
@@ -132,38 +125,40 @@ local function make_completion_item(name, snippet)
     }
 end
 
----@type fun(item: lsp.CompletionItem, buffer: integer)
-local function apply_completion(item, buffer)
-    if item.additionalTextEdits then
-        vim.lsp.util.apply_text_edits(item.additionalTextEdits, buffer, vim.opt.encoding:get())
-    end
-    local body = vim.tbl_get(item, "textEdit", "newText") or item.insertText or vim.v.completed_item.word
-    vim.snippet.expand(assert(body))
-end
-
+---@return lsp.CompletionItem?
 local function completion_item_userdata()
     return vim.tbl_get(vim.v.completed_item, "user_data", "nvim", "lsp", "completion_item")
         or vim.tbl_get(vim.v.completed_item, "user_data", "nvim-simple-snippets", "completion_item")
 end
 
+---@type fun(item: lsp.CompletionItem, buffer: integer)
+local function apply_completion(item, buffer)
+    if item.additionalTextEdits then
+        vim.lsp.util.apply_text_edits(item.additionalTextEdits, buffer, vim.opt.encoding:get())
+    end
+    local snippet = vim.tbl_get(item, "textEdit", "newText") or item.insertText or vim.v.completed_item.word
+    vim.snippet.expand(assert(snippet))
+end
+
+local function expand_completed_snippet()
+    local item = completion_item_userdata()
+    if item and item.insertTextFormat == lsp_snippet_insertTextFormat then
+        erase_word_before_cursor(vim.v.completed_item.word)
+        apply_completion(item, vim.api.nvim_get_current_buf())
+        vim.v.completed_item = vim.empty_dict() -- Sometimes not cleared automatically for some reason.
+    end
+end
+
 ---@return integer
 local function completion_autogroup()
-    return vim.api.nvim_create_augroup("nvim-simple-snippets-expand-completion", {})
+    return vim.api.nvim_create_augroup("nvim-simple-snippets-expand-completion", { clear = true })
 end
 
 M.enable_expand_completed_snippets = function ()
     vim.api.nvim_create_autocmd("CompleteDone", {
-        callback = function (event)
-            ---@type lsp.CompletionItem?
-            local item = completion_item_userdata()
-            if item and item.insertTextFormat == lsp_snippet_insertTextFormat then
-                erase_word_before_cursor(vim.v.completed_item.word)
-                apply_completion(item, event.buf)
-                vim.v.completed_item = vim.empty_dict() -- Sometimes not cleared automatically for some reason.
-            end
-        end,
-        group = completion_autogroup(),
-        desc  = "Expand completed snippets",
+        callback = expand_completed_snippet,
+        group    = completion_autogroup(),
+        desc     = "Expand completed snippets",
     })
 end
 
