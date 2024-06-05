@@ -1,5 +1,9 @@
 local M = {}
 
+M.configuration = {
+    treesitter = nil, ---@type boolean?
+}
+
 ---@alias simple-snippets.Snippet string|fun():string
 
 ---Maps filetypes to snippet tables.
@@ -21,7 +25,7 @@ end
 
 ---@return boolean
 local function use_treesitter()
-    return vim.treesitter.highlighter.active[vim.api.nvim_get_current_buf()] ~= nil
+    return M.configuration.treesitter == true and vim.treesitter.highlighter.active[vim.api.nvim_get_current_buf()] ~= nil
 end
 
 ---@return string[]
@@ -174,6 +178,23 @@ M.complete = function ()
     else
         vim.fn.complete(vim.fn.col('.'), vim.iter(pairs(snippets)):map(make_completion_item):totable())
     end
+end
+
+---@class simple-snippets.SetupOptions
+---@field completion boolean Whether to expand completed snippets.
+---@field treesitter boolean Whether to use treesitter for filetype detection.
+---@field snippets table<string, table<string, simple-snippets.Snippet>>
+
+---@param options simple-snippets.SetupOptions?
+M.setup = function (options)
+    options = options or {}
+    if options.completion then
+        M.enable_expand_completed_snippets()
+    end
+    if options.snippets then
+        M.snippets = vim.tbl_deep_extend("force", M.snippets, options.snippets)
+    end
+    M.configuration.treesitter = options.treesitter
 end
 
 return M
