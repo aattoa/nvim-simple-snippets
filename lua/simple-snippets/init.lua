@@ -1,18 +1,17 @@
 local M = {}
 
-M.configuration = {
-    treesitter = nil, ---@type boolean?
-}
+M.configuration = {}
 
 ---@alias simple-snippets.Snippet string|fun():string
+---@alias simple-snippets.SnippetTable table<string, table<string, simple-snippets.Snippet>>
 
 ---Maps filetypes to snippet tables.
----@type table<string, table<string, simple-snippets.Snippet>>
+---@type simple-snippets.SnippetTable
 M.snippets = {}
 
 ---@type fun(message: string, level: integer?)
 local function notify(message, level)
-    vim.notify("nvim-simple-snippets: " .. message, level or vim.log.levels.INFO)
+    vim.notify('nvim-simple-snippets: ' .. message, level or vim.log.levels.INFO)
 end
 
 ---@return string[]?
@@ -25,7 +24,7 @@ end
 
 ---@return boolean
 local function use_treesitter()
-    return M.configuration.treesitter == true and vim.treesitter.highlighter.active[vim.api.nvim_get_current_buf()] ~= nil
+    return M.configuration.treesitter and vim.treesitter.highlighter.active[vim.api.nvim_get_current_buf()] ~= nil
 end
 
 ---@return string[]
@@ -34,7 +33,7 @@ local function current_filetypes()
     if not vim.list_contains(filetypes, vim.bo.filetype) then
         table.insert(filetypes, vim.bo.filetype)
     end
-    table.insert(filetypes, "all")
+    table.insert(filetypes, 'all')
     return filetypes
 end
 
@@ -46,7 +45,7 @@ end
 ---@type fun(): table<string, simple-snippets.Snippet>
 local function snippets_for_cursor()
     local snippet_tables = vim.iter(current_filetypes()):map(snippets_for_filetype):totable()
-    return vim.tbl_extend("keep", unpack(snippet_tables))
+    return vim.tbl_extend('keep', unpack(snippet_tables))
 end
 
 ---@type fun(from: integer, to: integer)
@@ -65,12 +64,12 @@ end
 
 ---@type fun(snippet: simple-snippets.Snippet): string?
 local function snippet_body(snippet)
-    if type(snippet) == "string" then
+    if type(snippet) == 'string' then
         return snippet
-    elseif type(snippet) == "function" then
+    elseif type(snippet) == 'function' then
         return snippet_body(snippet())
     else
-        notify("Attempted to expand invalid snippet: " .. vim.inspect(snippet), vim.log.levels.WARN)
+        notify('Attempted to expand invalid snippet: ' .. vim.inspect(snippet), vim.log.levels.WARN)
     end
 end
 
@@ -83,10 +82,9 @@ end
 
 ---@return string? word
 local function word_before_cursor()
-    return vim.api.nvim_get_current_line():sub(1, vim.fn.col('.') - 1):match("%a+$")
+    return vim.api.nvim_get_current_line():sub(1, vim.fn.col('.') - 1):match('%a+$')
 end
 
----If there is a snippet name before the cursor, expand it.
 ---@return boolean success Whether a snippet was expanded.
 M.expand = function ()
     local name = word_before_cursor()
@@ -97,11 +95,11 @@ M.expand = function ()
     return true
 end
 
----If there is a snippet name before the cursor, expand it. Otherwise jump to the next snippet tabstop.
 M.expand_or_jump = function ()
     if not M.expand() then vim.snippet.jump(1) end
 end
 
+-- LSP completion specification:
 -- https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_completion
 
 local lsp_snippet_insertTextFormat = 2
@@ -112,8 +110,8 @@ local function make_completion_item(name, snippet)
     if not body then
         return {
             word = name,
-            menu = "(invalid)",
-            info = "This snippet has an invalid body!",
+            menu = '(invalid)',
+            info = 'This snippet has an invalid body!',
         }
     end
     ---@type lsp.CompletionItem
@@ -125,14 +123,14 @@ local function make_completion_item(name, snippet)
     return {
         word      = name,
         info      = body,
-        user_data = { ["nvim-simple-snippets"] = { completion_item = item } },
+        user_data = { ['nvim-simple-snippets'] = { completion_item = item } },
     }
 end
 
 ---@return lsp.CompletionItem?
 local function completion_item_userdata()
-    return vim.tbl_get(vim.v.completed_item, "user_data", "nvim", "lsp", "completion_item")
-        or vim.tbl_get(vim.v.completed_item, "user_data", "nvim-simple-snippets", "completion_item")
+    return vim.tbl_get(vim.v.completed_item, 'user_data', 'nvim', 'lsp', 'completion_item')
+        or vim.tbl_get(vim.v.completed_item, 'user_data', 'nvim-simple-snippets', 'completion_item')
 end
 
 ---@type fun(item: lsp.CompletionItem, buffer: integer)
@@ -140,8 +138,7 @@ local function apply_completion(item, buffer)
     if item.additionalTextEdits then
         vim.lsp.util.apply_text_edits(item.additionalTextEdits, buffer, vim.opt.encoding:get())
     end
-    local snippet = vim.tbl_get(item, "textEdit", "newText") or item.insertText or vim.v.completed_item.word
-    vim.snippet.expand(assert(snippet))
+    vim.snippet.expand(vim.tbl_get(item, 'textEdit', 'newText') or item.insertText or vim.v.completed_item.word)
 end
 
 local function expand_completed_snippet()
@@ -155,14 +152,14 @@ end
 
 ---@return integer
 local function completion_autogroup()
-    return vim.api.nvim_create_augroup("nvim-simple-snippets-expand-completion", { clear = true })
+    return vim.api.nvim_create_augroup('nvim-simple-snippets-expand-completion', { clear = true })
 end
 
 M.enable_expand_completed_snippets = function ()
-    vim.api.nvim_create_autocmd("CompleteDone", {
+    vim.api.nvim_create_autocmd('CompleteDone', {
         callback = expand_completed_snippet,
         group    = completion_autogroup(),
-        desc     = "Expand completed snippets",
+        desc     = 'Expand completed snippets',
     })
 end
 
@@ -170,20 +167,24 @@ M.disable_expand_completed_snippets = function ()
     completion_autogroup()
 end
 
----Display available snippets in a popup-menu, and expand the selection.
 M.complete = function ()
     local snippets = snippets_for_cursor()
     if vim.tbl_isempty(snippets) then
-        notify("No snippets available")
+        notify('No snippets available')
     else
         vim.fn.complete(vim.fn.col('.'), vim.iter(pairs(snippets)):map(make_completion_item):totable())
     end
 end
 
+---@param snippets simple-snippets.SnippetTable Snippets to be merged with the global snippet table.
+M.add = function (snippets)
+    M.snippets = vim.tbl_deep_extend('force', M.snippets, snippets)
+end
+
 ---@class simple-snippets.SetupOptions
 ---@field completion boolean Whether to expand completed snippets.
 ---@field treesitter boolean Whether to use treesitter for filetype detection.
----@field snippets table<string, table<string, simple-snippets.Snippet>>
+---@field snippets simple-snippets.SnippetTable
 
 ---@param options simple-snippets.SetupOptions?
 M.setup = function (options)
@@ -192,7 +193,7 @@ M.setup = function (options)
         M.enable_expand_completed_snippets()
     end
     if options.snippets then
-        M.snippets = vim.tbl_deep_extend("force", M.snippets, options.snippets)
+        M.add(options.snippets)
     end
     M.configuration.treesitter = options.treesitter
 end
